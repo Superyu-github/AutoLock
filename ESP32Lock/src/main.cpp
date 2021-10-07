@@ -33,9 +33,9 @@ void setup()
   delay(100);
   Serial.println("\n\nAdafruit finger detect test");
   myservo.attach(SEVER_PIN);                  //初始化舵机连接
-  touchAttachInterrupt(T0, Touch1_Event, 20); //初始化触摸引脚T0
-  touchAttachInterrupt(T7, Touch2_Event, 20); //初始化触摸引脚T2
-  touchAttachInterrupt(T3, Touch3_Event, 20); //初始化触摸引脚T3
+  touchAttachInterrupt(T0, Touch1_Event, 50); //初始化触摸引脚T0
+  touchAttachInterrupt(T7, Touch2_Event, 50); //初始化触摸引脚T2
+  touchAttachInterrupt(T3, Touch3_Event, 50); //初始化触摸引脚T3
   pinMode(26, INPUT_PULLDOWN);                //初始化外部中斷引脚 26
   attachInterrupt(26, PinIntEvent, RISING);
 
@@ -83,12 +83,13 @@ void loop()
     id = 255;    //清空指纹匹配标志位
     fingTourch = 0;
     finger.LEDcontrol(false); //Light Off
+    myservo.detach();         //执行完毕后将舵机失能，防止受力损坏
   }
   else if (id == 255 && wakeFlag)
   {
     finger.LEDcontrol(false); //Light Off
     fingTourch = 0;
-  
+    myservo.detach(); //执行完毕后将舵机失能，防止受力损坏
   }
   else if (tourch == 1) //外侧关门事件
   {
@@ -96,6 +97,7 @@ void loop()
     myservo.write(ANGLE_OFF);
     delay(2000);
     tourch = 0;
+    myservo.detach(); //执行完毕后将舵机失能，防止受力损坏
   }
   else if (tourch == 2) //内侧开门事件
   {
@@ -103,6 +105,7 @@ void loop()
     myservo.write(ANGLE_ON);
     delay(2000);
     tourch = 0;
+    myservo.detach(); //执行完毕后将舵机失能，防止受力损坏
   }
   else if (tourch == 3) //内侧关门事件
   {
@@ -110,9 +113,10 @@ void loop()
     myservo.write(ANGLE_OFF);
     delay(2000);
     tourch = 0;
+    myservo.detach(); //执行完毕后将舵机失能，防止受力损坏
   }
-  myservo.detach(); //执行完毕后将舵机失能，防止受理损坏
-  delay(50);
+
+  // delay(50);
 }
 /**
  * @description: 
