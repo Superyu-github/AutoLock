@@ -4,26 +4,41 @@
   RX      3
   GND    GND
 */
-
+#define BLINKER_WIFI
 #include <Adafruit_Fingerprint.h>
 #include <Servo.h>
+#include <Blinker.h>
+
 
 #define mySerial Serial2
 #define ANGLE_ON 90 //开门时的舵机角度
 #define ANGLE_OFF 0 //关门时的舵机角度
 #define SEVER_PIN 5 //舵机引脚
 
+
+
+
+char auth[] = "117293f4821c";
+char ssid[] = "PDCN";
+char pswd[] = "niuzi203203";
+
+// RTC_DATA_ATTR int bootCount = 0;
+int bootCount = 0;
 // uint8_t getFingerprintID();
 uint8_t getFingerprintIDez();
 void Touch1_Event();
 void Touch2_Event();
 void Touch3_Event();
 void PinIntEvent();
+void button1_callback(const String & state);
 
 Servo myservo;
 Adafruit_Fingerprint finger = Adafruit_Fingerprint(&mySerial);
 uint8_t tourch;
 uint8_t fingTourch;
+uint16_t timeCount;
+// 新建组件对象
+BlinkerButton Button1("btn-afz");
 
 void setup()
 {
@@ -33,9 +48,9 @@ void setup()
   delay(100);
   Serial.println("\n\nAdafruit finger detect test");
   myservo.attach(SEVER_PIN);                  //初始化舵机连接
-  touchAttachInterrupt(T0, Touch1_Event, 50); //初始化触摸引脚T0
-  touchAttachInterrupt(T7, Touch2_Event, 50); //初始化触摸引脚T2
-  touchAttachInterrupt(T3, Touch3_Event, 50); //初始化触摸引脚T3
+  touchAttachInterrupt(T0, Touch1_Event, 40); //初始化触摸引脚T0
+  touchAttachInterrupt(T7, Touch2_Event, 40); //初始化触摸引脚T2
+  touchAttachInterrupt(T3, Touch3_Event, 40); //初始化触摸引脚T3
   pinMode(26, INPUT_PULLDOWN);                //初始化外部中斷引脚 26
   attachInterrupt(26, PinIntEvent, RISING);
 
@@ -62,10 +77,21 @@ void setup()
   Serial.println("Waiting for valid finger...");
   finger.LEDcontrol(false); //
   myservo.write(ANGLE_OFF);
+  // esp_sleep_enable_touchpad_wakeup();
+  // esp_sleep_enable_ext0_wakeup(GPIO_NUM_26, 1);
+  Serial.printf("bootCount:%d ",bootCount);
+  // if(bootCount == 0)
+    // esp_deep_sleep_start();
+  
+  // esp_light_sleep_start();
+  BLINKER_DEBUG.stream(Serial);
+  Blinker.begin(auth, ssid, pswd);  
+  Button1.attach(button1_callback);
 }
 
 void loop()
 {
+  Blinker.run();
   uint8_t id = 255;
   uint8_t wakeFlag = 0;
   // uint8_t wakeFlag = 0;
@@ -115,6 +141,15 @@ void loop()
     tourch = 0;
     myservo.detach(); //执行完毕后将舵机失能，防止受力损坏
   }
+  if(timeCount>3000)
+  {
+    timeCount = 0;
+    // Serial.printf("sleep\n");
+
+    // esp_deep_sleep_start();
+  }
+  timeCount++;
+  Serial.printf("timeCount:%d\r\n",timeCount);
 
   // delay(50);
 }
@@ -125,6 +160,7 @@ void loop()
  */
 void PinIntEvent()
 {
+  // bootCount = 0;
   fingTourch = 1;
   Serial.printf("PinInt Event.\r\n");
 }
@@ -151,6 +187,7 @@ void Touch2_Event()
   uint16_t tourchvalue;
   tourchvalue = touchRead(T7);
   Serial.printf("Touch Event 2 InDoor Open %d\r\n", tourchvalue);
+  // bootCount++;
 }
 /**
  * @description: T3触摸事件 内侧关门
@@ -163,6 +200,19 @@ void Touch3_Event()
   uint16_t tourchvalue;
   tourchvalue = touchRead(T3);
   Serial.printf("Touch Event 3 InDoor Close %d\r\n", tourchvalue);
+}
+// 按下按键即会执行该函数
+void button1_callback(const String & state) {
+    BLINKER_LOG("get button state: ", state);
+    if (state=="on") {
+        // digitalWrite(LED_BUILTIN, LOW);
+        // 反馈开关状态
+        Button1.print("on");
+    } else if(state=="off"){
+        // digitalWrite(LED_BUILTIN, HIGH);
+        // 反馈开关状态
+        Button1.print("off");
+    }
 }
 
 uint8_t getFingerprintIDez()
