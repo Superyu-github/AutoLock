@@ -8,11 +8,15 @@
 #include <Adafruit_Fingerprint.h>
 #include <Servo.h>
 #include <Blinker.h>
+#include <DHT.h>
 
+#define DHTPIN 18
+#define DHTTYPE DHT11 // DHT 11
 #define mySerial Serial2
 #define ANGLE_ON 90 //开门时的舵机角度
 #define ANGLE_OFF 0 //关门时的舵机角度
 #define SEVER_PIN 5 //舵机引脚
+#define DETACH_TIME 4000000
 
 /*WIFI连接信息*/
 char auth[] = "";
@@ -37,8 +41,14 @@ typedef struct
   uint8_t fing_tourch;
   uint8_t fing_id;
   uint8_t fing_wake_flag;
+  uint8_t completed_flag;
 } auto_lock_t;
-
+/*DHT传感器数据结构体*/
+typedef struct
+{
+  float humi;
+  float temp;
+} dht_t;
 /*********************************************************
  * 函数声明
  * *******************************************************/
@@ -49,18 +59,29 @@ void FingDetector(auto_lock_t *auto_lock);
 uint8_t getFingerprintIDez();
 void UnLock();
 void Lock();
+void GetDhtData();
+void HeartBeat();
+void IRAM_ATTR TimerEvent();
 void FingerTouchEvent();
 void OutdoorTouchOffEvent();
 void IndoorTouchOnEvent();
 void IndoorTouchOffEvent();
 void Button1Callback(const String &state);
+void Button2Callback(const String &state);
 
+hw_timer_t *timer = NULL;
 Servo myservo;
 Adafruit_Fingerprint finger = Adafruit_Fingerprint(&mySerial);
+DHT dht(DHTPIN, DHTTYPE);
+/*定义DHT传感器数据*/
+dht_t dht_data;
 /*定义门锁状态记录*/
 auto_lock_t auto_lock;
 /*新建组件对象*/
 BlinkerButton Button1("btn-afz");
+BlinkerButton Button2("btn-refresh");
+BlinkerNumber HUMI("humi");
+BlinkerNumber TEMP("temp");
 
 /*********************************************************
  * 默认函数
@@ -72,6 +93,9 @@ void setup()
     ;
   delay(100);
   myservo.attach(SEVER_PIN);                          //初始化舵机连接
+  timer = timerBegin(0, 80, true);                    //分频系数设定
+  timerAlarmWrite(timer, DETACH_TIME, true);          //定时参数设定
+  timerAttachInterrupt(timer, &TimerEvent, true);     //定时器回调函数绑定
   touchAttachInterrupt(T0, OutdoorTouchOffEvent, 40); //触摸引脚T0回调函数绑定
   touchAttachInterrupt(T7, IndoorTouchOnEvent, 40);   //触摸引脚T7回调函数绑定
   touchAttachInterrupt(T3, IndoorTouchOffEvent, 40);  //触摸引脚T3回调函数绑定
@@ -80,8 +104,12 @@ void setup()
   AutoLockInit(&auto_lock);                           //初始化门锁状态结构体
   FingerInit();                                       //指纹模块初始化
   BLINKER_DEBUG.stream(Serial);                       //将BLINKER调试信息输出至串口
+  // BLINKER_DEBUG.debugAll();                           //输出详细信息
   Blinker.begin(auth, ssid, pswd);                    //初始化BLINKER连接
+  Blinker.attachHeartbeat(HeartBeat);                 //心跳包函数绑定
   Button1.attach(Button1Callback);                    // BLINKER按钮绑定
+  Button2.attach(Button2Callback);                    // BLINKER按钮绑定
+  dht.begin();
 }
 
 void loop()
@@ -89,6 +117,7 @@ void loop()
   Blinker.run();
   FingDetector(&auto_lock);
   LockControl(&auto_lock);
+  GetDhtData();
 }
 /*********************************************************
  * 用户函数定义
@@ -104,6 +133,7 @@ void AutoLockInit(auto_lock_t *auto_lock)
   auto_lock->fing_id = 255;
   auto_lock->fing_tourch = 0;
   auto_lock->fing_wake_flag = 0;
+  auto_lock->completed_flag = 1;
 }
 /**
  * @description: 门锁控制函数
@@ -115,15 +145,16 @@ void AutoLockInit(auto_lock_t *auto_lock)
 void LockControl(auto_lock_t *auto_lock)
 {
   /*本次锁定状态和上次锁定状态不同时才执行动作，防止执行器产生振荡*/
-  if (auto_lock->dool_state LOCK && auto_lock->dool_last_state UNLOCK)
+  // if (auto_lock->dool_state LOCK && auto_lock->dool_last_state UNLOCK && auto_lock->completed_flag)
+  if (auto_lock->dool_state LOCK)
   {
     Lock();
   }
-  else if (auto_lock->dool_state UNLOCK && auto_lock->dool_last_state LOCK)
+  else if (auto_lock->dool_state UNLOCK)
   {
     UnLock();
   }
-  auto_lock->dool_last_state = auto_lock->dool_state;
+  // auto_lock->dool_last_state = auto_lock->dool_state;
 }
 /**
  * @description: 指纹模块初始化函数
@@ -215,10 +246,12 @@ uint8_t getFingerprintIDez()
  */
 void UnLock()
 {
-  myservo.attach(SEVER_PIN);
+  // timerAlarmEnable(timer); //使能定时器
+  // timerRestart(timer);     //重启定时器
+  // myservo.attach(SEVER_PIN);
   myservo.write(ANGLE_ON);
-  delay(2000);
-  myservo.detach(); //执行完毕后将舵机失能，防止受力损坏
+  // Button1.print("on");
+  // myservo.detach(); //执行完毕后将舵机失能，防止受力损坏
 }
 /**
  * @description: 上锁执行函数
@@ -227,16 +260,68 @@ void UnLock()
  */
 void Lock()
 {
-  myservo.attach(SEVER_PIN);
+  // timerAlarmEnable(timer); //使能定时器
+  // timerRestart(timer);     //重启定时器
+  // myservo.attach(SEVER_PIN);
   myservo.write(ANGLE_OFF);
-  delay(2000);
-  myservo.detach(); //执行完毕后将舵机失能，防止受力损坏
-}
+  // Button1.print("off");
 
+  // myservo.detach(); //执行完毕后将舵机失能，防止受力损坏
+}
+/**
+ * @description: 从DHT传感器获取温湿度信息
+ * @param {*}
+ * @return {*}
+ */
+void GetDhtData()
+{
+  float h = dht.readHumidity();
+  float t = dht.readTemperature();
+
+  if (isnan(h) || isnan(t))
+  {
+    BLINKER_LOG("Failed to read from DHT sensor!");
+  }
+  else
+  {
+    BLINKER_LOG("Humidity: ", h, " %");
+    BLINKER_LOG("Temperature: ", t, " *C");
+    dht_data.humi = h;
+    dht_data.temp = t;
+  }
+  // Blinker.delay(2000);
+}
 /*********************************************************
  * 回调函数
  * *******************************************************/
-
+/**
+ * @description: 心跳包
+ * @param {*}
+ * @return {*}
+ */
+void HeartBeat()
+{
+  HUMI.print(dht_data.humi);
+  TEMP.print(dht_data.temp);
+  if (auto_lock.dool_state LOCK)
+    Button1.print("off");
+  else
+    Button1.print("on");
+}
+/**
+ * @description: 定时器中断回调函数
+ * @param {*}
+ * @return {*}
+ */
+void IRAM_ATTR TimerEvent()
+{
+  if (auto_lock.dool_state LOCK)
+    Button1.print("off");
+  else
+    Button1.print("on");
+  myservo.detach();         //执行完毕后将舵机失能，防止受力损坏
+  timerAlarmDisable(timer); //失能定时器
+}
 /**
  * @description: 指纹触摸事件
  * @param {*}
@@ -244,6 +329,9 @@ void Lock()
  */
 void FingerTouchEvent()
 {
+  timerAlarmEnable(timer); //使能定时器
+  timerRestart(timer);     //重启定时器
+  myservo.attach(SEVER_PIN);
   auto_lock.fing_tourch = 1;
   Serial.printf("PinInt Event.\r\n");
 }
@@ -254,6 +342,9 @@ void FingerTouchEvent()
  */
 void OutdoorTouchOffEvent()
 {
+  timerAlarmEnable(timer); //使能定时器
+  timerRestart(timer);     //重启定时器
+  myservo.attach(SEVER_PIN);
   auto_lock.dool_state = LOCK_OUTDOOL_TOUCH;
   uint16_t tourchvalue;
   tourchvalue = touchRead(T0);
@@ -266,11 +357,13 @@ void OutdoorTouchOffEvent()
  */
 void IndoorTouchOnEvent()
 {
+  timerAlarmEnable(timer); //使能定时器
+  timerRestart(timer);     //重启定时器
+  myservo.attach(SEVER_PIN);
   auto_lock.dool_state = UNLOCK_INDOOL_TOUCH;
   uint16_t tourchvalue;
   tourchvalue = touchRead(T7);
   Serial.printf("Touch Event 2 InDoor Open %d\r\n", tourchvalue);
-  // bootCount++;
 }
 /**
  * @description: T3触摸事件 内侧关门
@@ -279,6 +372,9 @@ void IndoorTouchOnEvent()
  */
 void IndoorTouchOffEvent()
 {
+  timerAlarmEnable(timer); //使能定时器
+  timerRestart(timer);     //重启定时器
+  myservo.attach(SEVER_PIN);
   auto_lock.dool_state = LOCK_INDOOL_TOUCH;
   uint16_t tourchvalue;
   tourchvalue = touchRead(T3);
@@ -286,12 +382,15 @@ void IndoorTouchOffEvent()
 }
 // 按下按键即会执行该函数
 /**
- * @description: BLINKER按钮回调函数
+ * @description: BLINKER按钮回调函数，开关锁
  * @param {String} &state
  * @return {*}
  */
 void Button1Callback(const String &state)
 {
+  timerAlarmEnable(timer); //使能定时器
+  timerRestart(timer);     //重启定时器
+  myservo.attach(SEVER_PIN);
   BLINKER_LOG("get button state: ", state);
   if (state == "on")
   {
@@ -305,4 +404,19 @@ void Button1Callback(const String &state)
     // 反馈开关状态
     Button1.print("off");
   }
+  /**
+   * @description: BLINKER按钮回回调函数，更新状态
+   * @param {*}
+   * @return {*}
+   */
+}
+void Button2Callback(const String &state)
+{
+  BLINKER_LOG("get button state: ", state);
+  HUMI.print(dht_data.humi);
+  TEMP.print(dht_data.temp);
+  if (auto_lock.dool_state LOCK)
+    Button1.print("off");
+  else
+    Button1.print("on");
 }
