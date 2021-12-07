@@ -52,6 +52,7 @@ typedef struct
 /*********************************************************
  * 函数声明
  * *******************************************************/
+void ConnectInstructor();
 void AutoLockInit(auto_lock_t *auto_lock);
 void LockControl(auto_lock_t *auto_lock);
 void FingerInit();
@@ -93,18 +94,22 @@ void setup()
     ;
   delay(100);
   myservo.attach(SEVER_PIN);                          //初始化舵机连接
-  timer = timerBegin(1, 80, true);                    //分频系数设定
+  timer = timerBegin(1, 80, true);                    //分频系数设定`
   timerAlarmWrite(timer, DETACH_TIME, true);          //定时参数设定
   timerAttachInterrupt(timer, &TimerEvent, true);     //定时器回调函数绑定
-  touchAttachInterrupt(T0, OutdoorTouchOffEvent, 35); //触摸引脚T0回调函数绑定
-  touchAttachInterrupt(T7, IndoorTouchOnEvent, 35);   //触摸引脚T7回调函数绑定
-  touchAttachInterrupt(T3, IndoorTouchOffEvent, 35);  //触摸引脚T3回调函数绑定
+  touchAttachInterrupt(T0, OutdoorTouchOffEvent, 15); //触摸引脚T0回调函数绑定
+  touchAttachInterrupt(T7, IndoorTouchOnEvent, 25);   //触摸引脚T7回调函数绑定
+  touchAttachInterrupt(T3, IndoorTouchOffEvent, 25);  //触摸引脚T3回调函数绑定
   pinMode(26, INPUT_PULLDOWN);                        //初始化外部中斷引脚 26
+  pinMode(13, OUTPUT_OPEN_DRAIN); 
+  digitalWrite(13,LOW);
+  pinMode(2, OUTPUT); //                        //初始化外部中斷引脚 26
+  digitalWrite(2,LOW);
   attachInterrupt(26, FingerTouchEvent, RISING);      //外部中断回调函数绑定
   AutoLockInit(&auto_lock);                           //初始化门锁状态结构体
   FingerInit();                                       //指纹模块初始化
-  // BLINKER_DEBUG.stream(Serial);                       //将BLINKER调试信息输出至串口
-  // BLINKER_DEBUG.debugAll();                           //输出详细信息
+  BLINKER_DEBUG.stream(Serial);                       //将BLINKER调试信息输出至串口
+  BLINKER_DEBUG.debugAll();                           //输出详细信息
   Blinker.begin(auth, ssid, pswd);                    //初始化BLINKER连接
   Blinker.attachHeartbeat(HeartBeat);                 //心跳包函数绑定
   Button1.attach(Button1Callback);                    // BLINKER按钮绑定
@@ -115,7 +120,9 @@ void setup()
 
 void loop()
 {
+  // digitalWrite(13,LOW); //
   Blinker.run();
+  ConnectInstructor();
   FingDetector(&auto_lock);
   LockControl(&auto_lock);
   GetDhtData();
@@ -158,6 +165,17 @@ void LockControl(auto_lock_t *auto_lock)
     UnLock();
   }
   // auto_lock->dool_last_state = auto_lock->dool_state;
+}
+void ConnectInstructor()
+{
+  if(Blinker.connected())
+  {
+    digitalWrite(2,HIGH); //
+  }
+  else
+  {
+    digitalWrite(2,LOW);
+  }
 }
 /**
  * @description: 指纹模块初始化函数
@@ -213,6 +231,7 @@ void FingDetector(auto_lock_t *auto_lock)
   {
     finger.LEDcontrol(false);   // Light Off
     auto_lock->fing_tourch = 0; //清空触摸唤醒标志位
+    auto_lock->fing_wake_flag = 0;
     // myservo.detach(); //执行完毕后将舵机失能，防止受力损坏
   }
 }
@@ -318,6 +337,7 @@ void HeartBeat()
  */
 void IRAM_ATTR TimerEvent()
 {
+  digitalWrite(13,HIGH); //
   myservo.detach();         //执行完毕后将舵机失能，防止受力损坏
   if (auto_lock.dool_state LOCK)
     Button1.print("off");
@@ -337,6 +357,7 @@ void FingerTouchEvent()
   timerRestart(timer);     //重启定时器
   timerAlarmEnable(timer); //使能定时器
   myservo.attach(SEVER_PIN);
+  digitalWrite(13,LOW); //
   auto_lock.fing_tourch = 1;
   Serial.printf("PinInt Event.\r\n");
 }
@@ -350,6 +371,7 @@ void OutdoorTouchOffEvent()
   timerRestart(timer);     //重启定时器
   timerAlarmEnable(timer); //使能定时器
   myservo.attach(SEVER_PIN);
+  digitalWrite(13,LOW); //
   auto_lock.dool_state = LOCK_OUTDOOL_TOUCH;
   uint16_t tourchvalue;
   tourchvalue = touchRead(T0);
@@ -365,6 +387,7 @@ void IndoorTouchOnEvent()
   timerRestart(timer);     //重启定时器
   timerAlarmEnable(timer); //使能定时器
   myservo.attach(SEVER_PIN);
+  digitalWrite(13,LOW); //
   auto_lock.dool_state = UNLOCK_INDOOL_TOUCH;
   uint16_t tourchvalue;
   tourchvalue = touchRead(T7);
@@ -380,6 +403,7 @@ void IndoorTouchOffEvent()
   timerRestart(timer);     //重启定时器
   timerAlarmEnable(timer); //使能定时器
   myservo.attach(SEVER_PIN);
+  digitalWrite(13,LOW); //
   auto_lock.dool_state = LOCK_INDOOL_TOUCH;
   uint16_t tourchvalue;
   tourchvalue = touchRead(T3);
@@ -396,6 +420,7 @@ void Button1Callback(const String &state)
   timerRestart(timer);     //重启定时器
   timerAlarmEnable(timer); //使能定时器
   myservo.attach(SEVER_PIN);
+  digitalWrite(13,LOW); //
   BLINKER_LOG("get button state: ", state);
   if (state == "on")
   {
